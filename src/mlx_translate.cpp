@@ -103,11 +103,13 @@ int main(int argc, char *argv[])
             fprintf(stderr, "%d ", l);
         fprintf(stderr, "\n");
 
-        // Step 1: Call GDAL BuildOverviews with NEAREST to allocate overview
-        // band structure. NEAREST is the fastest CPU option — we immediately
-        // overwrite the data with MLX in step 2.
+        // Step 1: Call GDAL BuildOverviews with "NONE" to allocate overview
+        // band structure without any CPU resampling. "NONE" is handled in
+        // GDALRegenerateOverviewsEx() (overview.cpp) as an immediate return —
+        // the TIFF IFDs are created but no pixel data is computed.
+        // MLX overwrites the slots in step 2.
         CPLErr eErr = poTmpDS->BuildOverviews(
-            "NEAREST", static_cast<int>(ovrLevels.size()),
+            "NONE", static_cast<int>(ovrLevels.size()),
             ovrLevels.data(), 0, nullptr, GDALDummyProgress, nullptr);
         if (eErr != CE_None)
         {
