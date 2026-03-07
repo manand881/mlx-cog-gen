@@ -6,7 +6,7 @@
 # Output: benchmark/data/dem_<gsd>.tif  (Float32, WGS84, LZW compressed)
 #
 # GSDs are expressed in degrees, converted from metric at lat ~13.
-# 1 deg lat approx 111,320 m  ->  80cm, 40cm, 20cm
+# 1 deg lat approx 111,320 m  ->  160cm, 80cm, 40cm, 20cm, 10cm, 5cm
 
 set -euo pipefail
 
@@ -53,15 +53,15 @@ echo "  Extent: ($XMIN, $YMIN) - ($XMAX, $YMAX)"
 # ---------------------------------------------------------------------------
 
 # label and gsd_in_degrees pairs (1 deg lat approx 111320m at lat ~13)
-LABELS=("80cm" "40cm" "20cm")
-RESOLS=("0.0000071867" "0.0000035933" "0.0000017967")
+LABELS=("160cm" "80cm" "40cm" "20cm" "10cm" "5cm")
+RESOLS=("0.0000143734" "0.0000071867" "0.0000035933" "0.0000017967" "0.0000008983" "0.0000004492")
 
 echo ""
 echo "========================================"
 echo "  DEM generation -- TIN interpolation"
 echo "========================================"
 
-for i in 0 1 2; do
+for i in "${!LABELS[@]}"; do
     label="${LABELS[$i]}"
     gsd="${RESOLS[$i]}"
     output="$DATA_DIR/dem_${label}.tif"
@@ -97,7 +97,7 @@ echo "========================================"
 echo "  Verifying outputs"
 echo "========================================"
 
-for i in 0 1 2; do
+for i in "${!LABELS[@]}"; do
     label="${LABELS[$i]}"
     output="$DATA_DIR/dem_${label}.tif"
 

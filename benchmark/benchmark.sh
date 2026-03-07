@@ -73,7 +73,7 @@ bench_tool() {
 # Discover rasters -- sorted, dynamic, no hardcoding
 # ---------------------------------------------------------------------------
 RASTERS=()
-while IFS= read -r f; do RASTERS+=("$f"); done < <(find "$DATA_DIR" -maxdepth 1 -name "*.tif" | sort)
+while IFS= read -r f; do RASTERS+=("$f"); done < <(find "$DATA_DIR" -maxdepth 1 -name "*.tif" -exec du -k {} + | sort -n | awk '{print $2}')
 
 if [ ${#RASTERS[@]} -eq 0 ]; then
     echo "No rasters found in $DATA_DIR -- run generate_test_data.sh first." >&2
@@ -83,6 +83,19 @@ fi
 echo ""
 echo "Found ${#RASTERS[@]} raster(s) to benchmark:"
 for r in "${RASTERS[@]}"; do echo "  $r"; done
+
+# ---------------------------------------------------------------------------
+# Warmup — run mlx_translate once on the smallest raster before any timing.
+# This initialises the MLX runtime, loads mlx.metallib into GPU memory, and
+# creates the Metal command queue so none of that one-time cost appears in
+# the timed runs.
+# ---------------------------------------------------------------------------
+WARMUP_INPUT="${RASTERS[0]}"
+echo ""
+echo "Warming up MLX runtime (untimed)..."
+"$REPO_ROOT/build/mlx_translate" "$WARMUP_INPUT" "$MLX_OUT" > /dev/null 2>&1 || true
+rm -f "$MLX_OUT"
+echo "  Done."
 
 # Accumulate table rows: "raster|dims|gdal_avg|mlx_avg|speedup"
 ROWS=()

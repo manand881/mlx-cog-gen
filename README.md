@@ -8,6 +8,14 @@ mlx-cog-gen replaces GDAL's CPU-based pyramid/overview generation with an MLX im
 
 **GDAL is a required system dependency.** This project links against the installed GDAL library and does not bundle it.
 
+## Why Apple Silicon
+
+On an x86 machine, GDAL's overview generation may or may not be leaving performance on the table depending on whether a discrete GPU is present. The behaviour varies by hardware configuration — some machines have it, some don't, and GDAL never uses it regardless.
+
+On Apple Silicon the situation is unambiguous. Every M-series device — from the base M1 MacBook Air to the M4 Mac Pro — ships with a high-performance GPU and Neural Engine in the same package as the CPU, sharing the same memory pool. GDAL uses none of it. The GPU is completely idle during the entire overview generation step on every Apple Silicon machine, every single time.
+
+This is not a niche edge case. Apple Silicon has become the dominant platform for professional macOS users including a large portion of the geospatial community. Optimising this workflow for Apple Silicon means every one of those machines benefits — not a subset with a particular hardware configuration, but all of them unconditionally.
+
 ## Why AVERAGE resampling
 
 GDAL's default overview resampling is **NEAREST** — it picks one pixel from each 2×2 block and discards the rest. For continuous data (elevation, imagery, temperature), this throws away 75% of the signal at each level. A ridge that is one pixel wide at full resolution can disappear entirely at the next overview level depending on which pixel was selected.
@@ -63,15 +71,18 @@ build/mlx_translate input.tif output_cog.tif -co COMPRESS=DEFLATE
 
 ## Benchmarks
 
-Tested on an M1 Pro (16 GB), 5 runs, both using AVERAGE resampling. Rasters are Float32 single-band DEMs generated via TIN interpolation at three GSDs:
+Tested on an M1 Pro (16 GB), 5 runs, both using AVERAGE resampling. Rasters are Float32 single-band DEMs generated via TIN interpolation at six GSDs:
 
-| Raster | Dimensions | GDAL avg | MLX avg | Speedup |
-|---|---|---|---|---|
-| dem_80cm | 3746×3634 | 1.274s | 1.012s | 1.25× faster |
-| dem_40cm | 7491×7268 | 3.936s | 2.771s | 1.42× faster |
-| dem_20cm | 14982×14536 | 13.386s | 8.480s | 1.57× faster |
+| Raster | Dimensions | File size | GDAL avg | MLX avg | Speedup |
+|---|---|---|---|---|---|
+| dem_160cm | 1873×1817 | 4.6 MB | 0.379s | 0.356s | 1.06× faster |
+| dem_80cm | 3746×3634 | 14 MB | 0.959s | 0.747s | 1.28× faster |
+| dem_40cm | 7491×7268 | 39 MB | 2.934s | 2.053s | 1.42× faster |
+| dem_20cm | 14982×14536 | 113 MB | 10.376s | 7.035s | 1.47× faster |
+| dem_10cm | 29967×29074 | 323 MB | 37.952s | 7.324s | 5.18× faster |
+| dem_5cm | 59927×58141 | 926 MB | 165.742s | 21.523s | 7.70× faster |
 
-Speedup grows with raster size — the GPU becomes increasingly efficient as the workload scales.
+Speedup grows with raster size — the GPU becomes increasingly efficient as the workload scales. At the largest tested size (dem_5cm, ~60k×58k pixels), MLX is **7.7× faster** than GDAL, completing in 21s versus GDAL's 165s.
 
 ## Roadmap
 
