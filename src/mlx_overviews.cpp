@@ -56,9 +56,7 @@ static mx::array mlx_downsample_average(const mx::array &input, int targetH,
     mx::array valid = mx::logical_not(mx::equal(padded, nodataScalar));
 
     // Zero out NoData pixels via where, avoiding widening the mask to float32
-    mx::array zeroed = mx::where(valid, padded,
-                                 mx::zeros({padded.shape()[0], padded.shape()[1]},
-                                           mx::float32));
+    mx::array zeroed = mx::where(valid, padded, mx::array(0.0f));
 
     // Reshape both data and mask to [targetH, 2, targetW, 2]
     mx::array dataR  = mx::reshape(zeroed, {targetH, 2, targetW, 2});
@@ -70,13 +68,11 @@ static mx::array mlx_downsample_average(const mx::array &input, int targetH,
 
     // Average = sum / count, guarding against divide-by-zero
     mx::array validCountF = mx::astype(validCount, mx::float32);
-    mx::array ones        = mx::ones({targetH, targetW}, mx::float32);
-    mx::array safeDenom   = mx::maximum(validCountF, ones);
+    mx::array safeDenom   = mx::maximum(validCountF, mx::array(1.0f));
     mx::array avg         = mx::divide(dataSum, safeDenom);
 
     // Where all pixels were NoData, write NoData
-    mx::array allNodata  = mx::equal(validCountF,
-                                     mx::zeros({targetH, targetW}, mx::float32));
+    mx::array allNodata  = mx::equal(validCountF, mx::array(0.0f));
     mx::array nodataFill = mx::full({targetH, targetW}, nodataVal, mx::float32);
 
     return mx::where(allNodata, nodataFill, avg);
@@ -157,9 +153,7 @@ static mx::array mlx_downsample_bilinear(const mx::array &input, int targetH,
     mx::array nodataScalar = mx::array(nodataVal, mx::float32);
     mx::array valid = mx::logical_not(mx::equal(padded, nodataScalar));
 
-    mx::array zeroed = mx::where(valid, padded,
-                                 mx::zeros({padded.shape()[0], padded.shape()[1]},
-                                           mx::float32));
+    mx::array zeroed = mx::where(valid, padded, mx::array(0.0f));
 
     mx::array dataR  = mx::reshape(zeroed, {targetH, 2, targetW, 2});
     mx::array validR = mx::reshape(valid,  {targetH, 2, targetW, 2});
@@ -168,12 +162,10 @@ static mx::array mlx_downsample_bilinear(const mx::array &input, int targetH,
     mx::array validCount = mx::sum(validR, std::vector<int>{1, 3});
 
     mx::array validCountF = mx::astype(validCount, mx::float32);
-    mx::array ones        = mx::ones({targetH, targetW}, mx::float32);
-    mx::array safeDenom   = mx::maximum(validCountF, ones);
+    mx::array safeDenom   = mx::maximum(validCountF, mx::array(1.0f));
     mx::array result      = mx::divide(dataSum, safeDenom);
 
-    mx::array allNodata  = mx::equal(validCountF,
-                                     mx::zeros({targetH, targetW}, mx::float32));
+    mx::array allNodata  = mx::equal(validCountF, mx::array(0.0f));
     mx::array nodataFill = mx::full({targetH, targetW}, nodataVal, mx::float32);
 
     return mx::where(allNodata, nodataFill, result);
