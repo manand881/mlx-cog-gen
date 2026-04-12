@@ -48,18 +48,6 @@ a dataset authored with this mistake.
 
 ---
 
-### Float16 nodata quantization
-Float16 precision near 10000 is ±8 (10-bit mantissa). `-9999` stored as Float16 rounds
-to `-10000.0`. The nodata metadata still says `-9999.0`. Both GDAL and our implementation
-compare the stored pixel value against the metadata value and find a mismatch; nodata
-pixels are silently treated as valid data and corrupt the overview averages.
-
-This affects any nodata value that cannot be exactly represented in Float16. Our rasters
-are Float32 so this is not triggered by normal usage, but any Float16 input with a
-non-power-of-two nodata value is affected.
-
----
-
 ## Accuracy
 
 ### Overview dimensions: ceil vs floor (1px per level)
