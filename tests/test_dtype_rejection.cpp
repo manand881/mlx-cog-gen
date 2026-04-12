@@ -39,6 +39,7 @@ int main()
         { GDT_UInt16,  "uint16"  },
         { GDT_Int16,   "int16"   },
         { GDT_Int32,   "int32"   },
+        { GDT_Float16, "float16" },
         { GDT_Float64, "float64" },
     };
 
