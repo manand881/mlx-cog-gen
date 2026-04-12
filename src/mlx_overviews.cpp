@@ -2,8 +2,19 @@
 
 #include <mlx/mlx.h>
 
+#include <chrono>
 #include <cstdio>
 #include <vector>
+
+namespace {
+using Clock = std::chrono::steady_clock;
+using Ms    = std::chrono::duration<double, std::milli>;
+
+static double elapsed_ms(Clock::time_point start)
+{
+    return Ms(Clock::now() - start).count();
+}
+} // namespace
 
 namespace mx = mlx::core;
 
@@ -189,23 +200,28 @@ CPLErr MLXBuildOverviews(GDALDataset *poDS, int nBands,
         double nodataDouble = poBand->GetNoDataValue(&hasNodata);
         float nodataVal = static_cast<float>(nodataDouble);
 
-        // Read full band as float32 into a temporary CPU buffer, then copy
-        // into an MLX array. The mx::array iterator constructor (array.h:
-        // init()) calls allocator::malloc + std::copy unconditionally, so
-        // bandData is no longer needed once the constructor returns. Swap it
-        // with an empty vector to release the memory before pyramid computation.
-        std::vector<float> bandData(static_cast<size_t>(W) * H);
-        CPLErr eErr = poBand->RasterIO(GF_Read, 0, 0, W, H, bandData.data(),
-                                       W, H, GDT_Float32, 0, 0);
+        auto tRead = Clock::now();
+        size_t nbytes = static_cast<size_t>(W) * H * sizeof(float);
+        auto buffer = mx::allocator::malloc(nbytes);
+        float *rawPtr = static_cast<float *>(buffer.raw_ptr());
+
+        CPLErr eErr = poBand->RasterIO(
+            GF_Read, 0, 0, W, H, rawPtr, W, H, GDT_Float32, 0, 0);
+        double msRead = elapsed_ms(tRead);
         if (eErr != CE_None)
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                      "MLXBuildOverviews: RasterIO read failed for band %d",
                      panBandList[iBand]);
+            mx::allocator::free(buffer);
             return eErr;
         }
-        mx::array current = mx::array(bandData.data(), {H, W}, mx::float32);
-        std::vector<float>().swap(bandData); // copy done; release CPU buffer now
+
+        auto tArrayCopy = Clock::now();
+        mx::array current =
+            mx::array(rawPtr, {H, W}, mx::float32,
+                     [buffer](void *) { mx::allocator::free(buffer); });
+        double msArrayCopy = elapsed_ms(tArrayCopy);
 
         // Iteratively downsample each overview level from the previous level
         for (int iOvr = 0; iOvr < nOvrCount; iOvr++)
