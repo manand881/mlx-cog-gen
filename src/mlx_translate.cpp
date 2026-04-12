@@ -3,10 +3,21 @@
 #include <vector>
 #include <string>
 
+#include <chrono>
 #include <gdal_priv.h>
 #include <cpl_string.h>
 
 #include "mlx_overviews.h"
+
+namespace {
+using Clock = std::chrono::steady_clock;
+using Ms    = std::chrono::duration<double, std::milli>;
+
+static double elapsed_ms(Clock::time_point start)
+{
+    return Ms(Clock::now() - start).count();
+}
+} // namespace
 
 /**
  * Compute overview decimation levels (powers of 2) until the smallest
@@ -72,6 +83,10 @@ int main(int argc, char *argv[])
         papszCOOptions =
             CSLSetNameValue(papszCOOptions, "COMPRESS", "LZW");
 
+    if (!CSLFetchNameValue(papszCOOptions, "NUM_THREADS"))
+        papszCOOptions =
+            CSLSetNameValue(papszCOOptions, "NUM_THREADS", "ALL_CPUS");
+
     // Enable multi-threaded GDAL operations for the entire pipeline:
     // - source tile decompression during temp GTiff creation
     // - LZW tile compression during final COG write
@@ -112,6 +127,15 @@ int main(int argc, char *argv[])
     fprintf(stderr, "Input: %s (%dx%d, %d band(s))\n",
             inputPath, srcW, srcH, nBands);
 
+    auto t0 = Clock::now();
+    auto tCopySrc = t0;
+    auto tCog = t0;
+    double msCopySrc = 0.0;
+    double msBuildOvr = 0.0;
+    double msMlxOvr = 0.0;
+    double msCog = 0.0;
+    CPLErr eErr = CE_None;
+
     // Create in-memory temp GTiff copy.
     // Forward BIGTIFF if the user requested it, so the temp file doesn't hit
     // the 4 GB classic-TIFF limit before overviews are written.
@@ -122,8 +146,10 @@ int main(int argc, char *argv[])
     const char *pszBigTiff = CSLFetchNameValue(papszCOOptions, "BIGTIFF");
     if (pszBigTiff)
         papszTmpOptions = CSLSetNameValue(papszTmpOptions, "BIGTIFF", pszBigTiff);
+    tCopySrc = Clock::now();
     GDALDataset *poTmpDS = poTiffDriver->CreateCopy(
         tmpPath, poSrcDS, FALSE, papszTmpOptions, nullptr, nullptr);
+    msCopySrc = elapsed_ms(tCopySrc);
     CSLDestroy(papszTmpOptions);
     GDALClose(poSrcDS); // all data copied; release source immediately
     if (!poTmpDS)
@@ -147,14 +173,16 @@ int main(int argc, char *argv[])
             fprintf(stderr, "%d ", l);
         fprintf(stderr, "\n");
 
+        auto tBuildOvr = Clock::now();
         // Step 1: Call GDAL BuildOverviews with "NONE" to allocate overview
         // band structure without any CPU resampling. "NONE" is handled in
         // GDALRegenerateOverviewsEx() (overview.cpp) as an immediate return:
         // the TIFF IFDs are created but no pixel data is computed.
         // MLX overwrites the slots in step 2.
-        CPLErr eErr = poTmpDS->BuildOverviews(
+        eErr = poTmpDS->BuildOverviews(
             "NONE", static_cast<int>(ovrLevels.size()),
             ovrLevels.data(), 0, nullptr, GDALDummyProgress, nullptr);
+        msBuildOvr = elapsed_ms(tBuildOvr);
         if (eErr != CE_None)
         {
             fprintf(stderr, "Failed to allocate overview structure\n");
@@ -163,6 +191,7 @@ int main(int argc, char *argv[])
             return 1;
         }
 
+        auto tMlxOvr = Clock::now();
         // Step 2: Overwrite overview data with MLX GPU-computed values
         fprintf(stderr, "Running MLX overview generation on GPU...\n");
         std::vector<int> bandList(nBands);
@@ -170,6 +199,7 @@ int main(int argc, char *argv[])
             bandList[i] = i + 1;
 
         eErr = MLXBuildOverviews(poTmpDS, nBands, bandList.data(), resampleMethod);
+        msMlxOvr = elapsed_ms(tMlxOvr);
         if (eErr != CE_None)
         {
             fprintf(stderr, "MLX overview generation failed\n");
@@ -193,10 +223,14 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    tCog = Clock::now();
     fprintf(stderr, "Writing COG: %s\n", outputPath);
     GDALDataset *poCOGDS = poCOGDriver->CreateCopy(
         outputPath, poTmpDS, FALSE, papszCOOptions,
         GDALTermProgress, nullptr);
+    msCog = elapsed_ms(tCog);
+
+    fprintf(stderr, "COG write: %.1fms\n", msCog);
 
     if (!poCOGDS)
     {
@@ -216,6 +250,16 @@ int main(int argc, char *argv[])
     GDALClose(poTmpDS);
     GDALDeleteDataset(nullptr, tmpPath);
     CSLDestroy(papszCOOptions);
+
+    double msTotal = elapsed_ms(t0);
+    fprintf(stderr, "\n========== Timing Summary ==========\n");
+    fprintf(stderr, "  Source copy:      %.1fms\n", msCopySrc);
+    fprintf(stderr, "  Build overviews:  %.1fms\n", msBuildOvr);
+    fprintf(stderr, "  MLX GPU compute:  %.1fms\n", msMlxOvr);
+    fprintf(stderr, "  COG write:       %.1fms\n", msCog);
+    fprintf(stderr, "  ----------------------------------\n");
+    fprintf(stderr, "  Total:           %.1fms\n", msTotal);
+    fprintf(stderr, "========================================\n");
 
     fprintf(stderr, "Done.\n");
     return 0;

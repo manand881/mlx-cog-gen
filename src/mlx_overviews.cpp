@@ -223,6 +223,11 @@ CPLErr MLXBuildOverviews(GDALDataset *poDS, int nBands,
                      [buffer](void *) { mx::allocator::free(buffer); });
         double msArrayCopy = elapsed_ms(tArrayCopy);
 
+        double msGpuTotal = 0.0;
+        double msIoTotal = 0.0;
+        double msGpuLevel = 0.0;
+        double msIoLevel = 0.0;
+
         // Iteratively downsample each overview level from the previous level
         for (int iOvr = 0; iOvr < nOvrCount; iOvr++)
         {
@@ -230,17 +235,25 @@ CPLErr MLXBuildOverviews(GDALDataset *poDS, int nBands,
             int oW = poOvr->GetXSize();
             int oH = poOvr->GetYSize();
 
+            auto tGpu = Clock::now();
             mx::array downsampled =
                 (method == ResampleMethod::BILINEAR)
                     ? mlx_downsample_bilinear(current, oH, oW, nodataVal, hasNodata)
                     : mlx_downsample_average(current, oH, oW, nodataVal, hasNodata);
             mx::eval(downsampled);
+            msGpuLevel = elapsed_ms(tGpu);
 
             // Write result directly from MLX unified memory into the overview
             // band. No intermediate copy is needed since eval() has completed.
+            auto tIo = Clock::now();
             eErr = poOvr->RasterIO(GF_Write, 0, 0, oW, oH,
                                    const_cast<float *>(downsampled.data<float>()),
                                    oW, oH, GDT_Float32, 0, 0);
+            msIoLevel = elapsed_ms(tIo);
+
+            msGpuTotal += msGpuLevel;
+            msIoTotal += msIoLevel;
+
             if (eErr != CE_None)
             {
                 CPLError(CE_Failure, CPLE_AppDefined,
@@ -250,12 +263,17 @@ CPLErr MLXBuildOverviews(GDALDataset *poDS, int nBands,
                 return eErr;
             }
 
+            fprintf(stderr, "    Level %d: %dx%d  gpu: %.1fms  io: %.1fms\n",
+                    iOvr + 1, oW, oH, msGpuLevel, msIoLevel);
+
             current = downsampled;
         }
 
-        fprintf(stderr, "  Band %d: %d overview level(s) computed on GPU (%s)\n",
+        fprintf(stderr, "  Band %d: %d overview level(s) computed on GPU (%s)  "
+                "read: %.1fms  array: %.1fms  gpu: %.1fms  io: %.1fms\n",
                 panBandList[iBand], nOvrCount,
-                method == ResampleMethod::BILINEAR ? "bilinear" : "average");
+                method == ResampleMethod::BILINEAR ? "bilinear" : "average",
+                msRead, msArrayCopy, msGpuTotal, msIoTotal);
     }
 
     return CE_None;
