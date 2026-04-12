@@ -3,8 +3,9 @@
 # Each raster is benchmarked independently; results are consolidated in a
 # single table at the end.
 #
-# Usage: ./benchmark/benchmark.sh [iterations]
+# Usage: ./benchmark/benchmark.sh [iterations] [limit]
 # Default: 5 iterations per raster per tool
+# If limit is specified, only benchmarks the N smallest rasters by file size
 
 set -euo pipefail
 
@@ -12,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="$SCRIPT_DIR/data"
 ITERATIONS=${1:-5}
+LIMIT=${2:-0}  # 0 means no limit
 LOG_FILE="$SCRIPT_DIR/benchmark-$(date '+%Y-%m-%d-%H-%M-%S').log"
 exec > >(tee "$LOG_FILE") 2>&1
 GDAL_OUT="/tmp/benchmark_gdal_out.tif"
@@ -39,6 +41,9 @@ echo "  Total RAM    : ${TOTAL_RAM_GB}GB"
 echo "  GDAL version : $GDAL_VERSION"
 echo "  MLX version  : $MLX_VERSION"
 echo "  Runs         : $ITERATIONS"
+if [ "$LIMIT" -gt 0 ]; then
+    echo "  Limit        : $LIMIT smallest rasters"
+fi
 echo "========================================"
 
 # ---------------------------------------------------------------------------
@@ -80,6 +85,11 @@ while IFS= read -r f; do RASTERS+=("$f"); done < <(find "$DATA_DIR" -maxdepth 1 
 if [ ${#RASTERS[@]} -eq 0 ]; then
     echo "No rasters found in $DATA_DIR -- run generate_test_data.sh first." >&2
     exit 1
+fi
+
+# Apply limit if specified
+if [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt ${#RASTERS[@]} ]; then
+    RASTERS=("${RASTERS[@]:0:$LIMIT}")
 fi
 
 echo ""
