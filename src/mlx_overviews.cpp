@@ -3,6 +3,7 @@
 #include <mlx/mlx.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <vector>
 
@@ -232,6 +233,16 @@ CPLErr MLXBuildOverviews(GDALDataset *poDS, int nBands,
         int hasNodata = 0;
         double nodataDouble = poBand->GetNoDataValue(&hasNodata);
         float nodataVal = static_cast<float>(nodataDouble);
+
+        // Reject NaN no-data values: mx::equal() cannot detect NaN (NaN != NaN by IEEE 754)
+        // and NaN pixels would propagate through averaging, corrupting all overviews
+        if (hasNodata && std::isnan(nodataVal))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "MLXBuildOverviews: NaN no-data values are not supported. "
+                     "Convert the dataset to use a numeric no-data value (e.g., -9999) before processing.");
+            return CE_Failure;
+        }
 
         auto tRead = Clock::now();
         size_t nbytes = static_cast<size_t>(W) * H * sizeof(float);
