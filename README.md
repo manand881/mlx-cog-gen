@@ -1,6 +1,7 @@
 # MLX-Cog-Gen
 
 ![CI](https://github.com/manand881/mlx-cog-gen/actions/workflows/ci.yml/badge.svg)
+[![Windsurf](https://img.shields.io/badge/Windsurf-0B100F?logo=windsurf&logoColor=fff)](#)
 
 MLX-accelerated Cloud Optimized GeoTIFF generator for Apple Silicon.
 
