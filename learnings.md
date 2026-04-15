@@ -60,7 +60,7 @@
 
 ## Benchmark
 
-- `sample_dem.tif` lives in `tests/`; gitignored via `*.tif` but explicitly unignored via `!tests/sample_dem.tif`
+- `sample_dem.tif` lives in `tests/`; gitignored via `*.tif` but explicitly unignored via `!tests/sample_dem.tif`. Current file has 1.9% nodata coverage. A better test file with 22.24% nodata (128MB, exceeds GitHub size limit) is available locally and validates nodata handling correctly at higher nodata percentages.
 - `build/` is gitignored; must be recreated on fresh clone
 
 ### Benchmark methodology notes
