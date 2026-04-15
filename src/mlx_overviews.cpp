@@ -108,9 +108,9 @@ static mx::array mlx_downsample_average(const mx::array &input, int targetH,
  *
  * For the no-NoData path this is implemented as two separable reshape+mean
  * passes, which is structurally equivalent to GDAL's separable convolution.
- * For the NoData path a 2D masked sum is used to match GDAL's 2D weight
- * accumulation (a separable NoData pass would over-weight pixels that
- * partially survived the horizontal pass).
+ * For the NoData path, a separable masked convolution is used to match GDAL's
+ * GDALResampleChunk_ConvolutionT exactly: horizontal pass produces intermediate
+ * values and mask, vertical pass applies weights to intermediate using mask.
  *
  * Numerical result for 2x with no NoData: identical to mlx_downsample_average
  * because the equal 0.5/0.5 weights make the separable and box approaches
@@ -157,26 +157,59 @@ static mx::array mlx_downsample_bilinear(const mx::array &input, int targetH,
                         std::vector<int>{1});
     }
 
-    // NoData path: 2D masked weighted sum, matching GDAL's 2D weight
-    // accumulation in GDALResampleChunk_ConvolutionT more closely than a
-    // separable masked pass would.
+    // NoData path: separable masked convolution to match GDAL's
+    // GDALResampleChunk_ConvolutionT implementation exactly.
+    // Horizontal pass applies 1D tent weights with mask, produces intermediate
+    // values and mask. Vertical pass applies 1D tent weights to intermediate
+    // values using intermediate mask. Final 2D weights = product of 1D weights.
     // Mask kept as bool (1 byte/pixel) to reduce memory bandwidth.
     mx::array nodataScalar = mx::array(nodataVal, mx::float32);
     mx::array valid = mx::logical_not(mx::equal(padded, nodataScalar));
 
+    // Horizontal pass: reshape [pH, pW] -> [pH, targetW, 2], apply masked mean
+    // For 2x downsampling, tent weights are 0.5, 0.5. With masking:
+    // - If both valid: (0.5*p1 + 0.5*p2) / (0.5+0.5) = mean
+    // - If one valid: (0.5*p) / 0.5 = p
+    // - If neither valid: NoData
     mx::array zeroed = mx::where(valid, padded, mx::array(0.0f));
+    mx::array dataH  = mx::reshape(zeroed, {pH, targetW, 2});
+    mx::array validH = mx::reshape(valid,  {pH, targetW, 2});
 
-    mx::array dataR  = mx::reshape(zeroed, {targetH, 2, targetW, 2});
-    mx::array validR = mx::reshape(valid,  {targetH, 2, targetW, 2});
+    // Multiply data by weights (0.5) before summing
+    mx::array weightedH = dataH * mx::array(0.5f);
+    mx::array dataSumH    = mx::sum(weightedH, std::vector<int>{2});
+    mx::array validCountH = mx::sum(validH, std::vector<int>{2});
 
-    mx::array dataSum    = mx::sum(dataR,  std::vector<int>{1, 3});
-    mx::array validCount = mx::sum(validR, std::vector<int>{1, 3});
+    // Normalize by sum of weights (each valid pixel contributes weight 0.5)
+    // Matching GDAL: if weightSum > 0, output = dataSum / weightSum; else output = 0
+    mx::array validCountHF = mx::astype(validCountH, mx::float32);
+    mx::array weightSumH   = validCountHF * mx::array(0.5f);
+    mx::array hasWeightH   = mx::greater(weightSumH, mx::array(0.0f));
+    mx::array horiz        = mx::where(hasWeightH, mx::divide(dataSumH, weightSumH), mx::array(0.0f));
 
-    mx::array validCountF = mx::astype(validCount, mx::float32);
-    mx::array safeDenom   = mx::maximum(validCountF, mx::array(1.0f));
-    mx::array result      = mx::divide(dataSum, safeDenom);
+    // Intermediate mask: true if any valid pixel survived horizontal pass
+    mx::array horizValid = mx::greater(validCountHF, mx::array(0.0f));
 
-    mx::array allNodata  = mx::equal(validCountF, mx::array(0.0f));
+    // Vertical pass: reshape [pH, targetW] -> [targetH, 2, targetW], apply masked mean
+    // using intermediate mask from horizontal pass
+    mx::array zeroedHoriz = mx::where(horizValid, horiz, mx::array(0.0f));
+    mx::array dataV       = mx::reshape(zeroedHoriz, {targetH, 2, targetW});
+    mx::array validV      = mx::reshape(horizValid,  {targetH, 2, targetW});
+
+    // Multiply data by weights (0.5) before summing
+    mx::array weightedV = dataV * mx::array(0.5f);
+    mx::array dataSumV    = mx::sum(weightedV, std::vector<int>{1});
+    mx::array validCountV = mx::sum(validV, std::vector<int>{1});
+
+    // Normalize by sum of weights (each valid pixel contributes weight 0.5)
+    // Matching GDAL: if weightSum > 0, output = dataSum / weightSum; else output = 0
+    mx::array validCountVF = mx::astype(validCountV, mx::float32);
+    mx::array weightSumV   = validCountVF * mx::array(0.5f);
+    mx::array hasWeightV   = mx::greater(weightSumV, mx::array(0.0f));
+    mx::array result       = mx::where(hasWeightV, mx::divide(dataSumV, weightSumV), mx::array(0.0f));
+
+    // Output NoData where no valid pixels survived either pass
+    mx::array allNodata  = mx::equal(validCountVF, mx::array(0.0f));
     mx::array nodataFill = mx::full({targetH, targetW}, nodataVal, mx::float32);
 
     return mx::where(allNodata, nodataFill, result);

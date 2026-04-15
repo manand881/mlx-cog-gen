@@ -14,7 +14,7 @@
 static const char *INPUT = "tests/sample_dem.tif";
 static const char *GDAL_OUT = "/vsimem/test_stats_gdal.tif";
 static const char *MLX_OUT  = "/vsimem/test_stats_mlx.tif";
-static const float TOLERANCE = 0.05f; // 5%
+static const float TOLERANCE = 0.03f; // 3% (max observed deviation: 2.48%)
 
 struct Stats
 {
@@ -63,6 +63,17 @@ static bool withinTolerance(float a, float b, float pct)
 
 static void checkStats(const char *label, Stats gdal, Stats mlx, float pct)
 {
+    // Calculate actual deviation percentages
+    auto devPct = [](float a, float b) -> float {
+        float denom = std::max(std::abs(b), 1e-6f);
+        return std::abs(a - b) / denom * 100.0f;
+    };
+
+    float minDev    = devPct(mlx.min,    gdal.min);
+    float maxDev    = devPct(mlx.max,    gdal.max);
+    float meanDev   = devPct(mlx.mean,   gdal.mean);
+    float stddevDev = devPct(mlx.stddev, gdal.stddev);
+
     bool ok = withinTolerance(mlx.min,    gdal.min,    pct) &&
               withinTolerance(mlx.max,    gdal.max,    pct) &&
               withinTolerance(mlx.mean,   gdal.mean,   pct) &&
@@ -73,6 +84,8 @@ static void checkStats(const char *label, Stats gdal, Stats mlx, float pct)
            gdal.min, gdal.max, gdal.mean, gdal.stddev);
     printf("    MLX   min=%-8.3f max=%-8.3f mean=%-8.3f stddev=%-8.3f\n",
            mlx.min,  mlx.max,  mlx.mean,  mlx.stddev);
+    printf("    Dev   min=%-6.2f%% max=%-6.2f%% mean=%-6.2f%% stddev=%-6.2f%%\n",
+           minDev, maxDev, meanDev, stddevDev);
 
     if (!ok)
     {

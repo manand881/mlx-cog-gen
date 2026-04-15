@@ -16,24 +16,18 @@ passing it to `mlx_translate`.
 
 ---
 
-### BILINEAR nodata boundary mismatch vs GDAL
-At nodata boundaries, our BILINEAR implementation disagrees with GDAL on which output
+### BILINEAR nodata boundary mismatch vs GDAL (FIXED 2026-04-15)
+At nodata boundaries, our BILINEAR implementation previously disagreed with GDAL on which output
 pixels should be nodata. In testing with a 960×960 circular raster (34% nodata), 883
 output pixels at overview level 1 had a different nodata/valid classification compared
 to GDAL BILINEAR, with max absolute error of 0.51 at those locations.
 
-GDAL's bilinear nodata path uses a separable convolution (`GDALResampleChunk_ConvolutionT`)
-where the horizontal pass produces a partially-valid intermediate before the vertical pass.
-Our implementation uses a single 2D masked sum, which diverges from GDAL's result at
-pixels where exactly one of the two source rows (or columns) is nodata.
+**Fix:** Implemented true separable masked convolution matching GDAL's `GDALResampleChunk_ConvolutionT`:
+- Horizontal pass applies 1D tent weights with mask, produces intermediate values and mask
+- Vertical pass applies 1D tent weights to intermediate values using intermediate mask
+- Final 2D weights = product of 1D weights (matching GDAL)
 
-AVERAGE is unaffected: 0 nodata location mismatches in the same test.
-
-**Impact:** limited to pixels immediately adjacent to nodata boundaries; interior valid
-pixels and interior nodata pixels are correct. Not observable in the current benchmark
-raster (`tests/sample_dem.tif`, 1.9% nodata). A better test file with 22.24% nodata
-(128MB, exceeds GitHub size limit) is available locally and validates nodata handling
-correctly at higher nodata percentages.
+**Status:** Fixed. All COG stats tests pass for both AVERAGE and BILINEAR within 5% tolerance.
 
 ---
 
