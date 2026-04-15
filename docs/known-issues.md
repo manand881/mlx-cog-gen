@@ -2,17 +2,17 @@
 
 ## Correctness
 
-### NaN nodata pixels treated as valid data
+### NaN nodata values not supported
 `mx::equal(padded, NaN)` returns false for every pixel because `NaN != NaN` by IEEE 754.
-NaN nodata pixels pass through as valid, NaN propagates through the average, and any
-2×2 block containing a NaN nodata pixel produces NaN output instead of the average of
-the remaining valid pixels.
+NaN nodata pixels cannot be masked correctly and would propagate through averaging,
+corrupting all overviews.
 
-GDAL uses an explicit `IsNaN()` check. We do not. NaN is a common nodata value for
-Float32 DEMs. Any dataset authored with `nodata=nan` will produce corrupted overviews.
+**Current behavior:** The tool now rejects datasets with NaN no-data values at startup
+with a clear error message: "MLXBuildOverviews: NaN no-data values are not supported.
+Convert the dataset to use a numeric no-data value (e.g., -9999) before processing."
 
-**Workaround:** convert the dataset to use a numeric nodata value (e.g. `-9999`) before
-passing it to `mlx_translate`.
+**Workaround:** Convert the dataset to use a numeric nodata value (e.g. `-9999`) before
+processing.
 
 ---
 
