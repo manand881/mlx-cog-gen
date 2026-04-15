@@ -1,5 +1,7 @@
 # MLX-Cog-Gen
 
+![CI](https://github.com/manand881/mlx-cog-gen/actions/workflows/ci.yml/badge.svg)
+
 MLX-accelerated Cloud Optimized GeoTIFF generator for Apple Silicon.
 
 ## About
