@@ -30,8 +30,10 @@ pixels where exactly one of the two source rows (or columns) is nodata.
 AVERAGE is unaffected: 0 nodata location mismatches in the same test.
 
 **Impact:** limited to pixels immediately adjacent to nodata boundaries; interior valid
-pixels and interior nodata pixels are correct. Not observable in any current benchmark
-raster since all have zero actual nodata pixels.
+pixels and interior nodata pixels are correct. Not observable in the current benchmark
+raster (`tests/sample_dem.tif`, 1.9% nodata). A better test file with 22.24% nodata
+(128MB, exceeds GitHub size limit) is available locally and validates nodata handling
+correctly at higher nodata percentages.
 
 ---
 
